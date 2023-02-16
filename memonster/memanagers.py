@@ -5,8 +5,8 @@ import copy
 
 from typing import TypeVar, Type
 
-from metamem import MemType
-from utils import py_to_pointer
+from .metamem import MemType
+from .utils import py_to_pointer
 
 import ctypes
 

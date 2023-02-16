@@ -3,7 +3,7 @@ import struct
 
 from typing import TypeVar, Generic, Type
 
-from metamem import MemType
+from .metamem import MemType
 
 
 T = TypeVar("T")
