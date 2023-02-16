@@ -63,15 +63,15 @@ class MemoryBackend:
     def write_bytes(self, data: bytes, address: int):
         raise NotImplementedError()
 
-    def alloc(self, size: int) -> "OwnedView":
+    def alloc(self, size: int) -> "MemoryView":
         raise NotImplementedError()
 
-    def alloc0(self, size: int) -> "OwnedView":
+    def alloc0(self, size: int) -> "MemoryView":
         result = self.alloc(size)
         result.write_bytes("\x00" * size)
         return result
 
-    def free(self, ptr: "OwnedView"):
+    def free(self, ptr: "MemoryView"):
         raise NotImplementedError()
 
 class WindowsBackend(MemoryBackend):
@@ -96,7 +96,7 @@ class WindowsBackend(MemoryBackend):
             0x1000 | 0x2000, # MEM_COMMIT and MEM_RESERVE
             0x40, # PAGE_EXECUTE_READWRITE
             ):
-            ptr = OwnedView(
+            ptr = MemoryView(
                 int(lpvoid),
                 size,
                 self
@@ -105,8 +105,8 @@ class WindowsBackend(MemoryBackend):
         else:
             raise AllocatorError("VirtualAllocEx failed")
 
-    def free(self, ptr: "OwnedView"):
-        assert isinstance(ptr.backend, OwnedView)
+    def free(self, ptr: "MemoryView"):
+        assert isinstance(ptr.backend, MemoryView)
         _VirtualFreeEx(
             self.handle,
             ptr.address,
@@ -131,23 +131,16 @@ class MemoryView:
         assert offset + len(data) <= self.size
         self.backend.write_bytes(data, self.address + offset)
 
-    def into(self, memtype: Type[MMT] | MMT) -> MMT:
+    def into(self, memtype: Type[MMT] | MMT, offset: int = 0) -> MMT:
         # TODO: Check if the type actually fits into the view
         if inspect.isclass(memtype):
-            res = memtype(0)
-            res._memview = self
+            res = memtype(offset)
+            res._memview = copy.copy(self)
             return res
         else:
             res = copy.copy(memtype)
-            res._memview = self
+            res._memview = copy.copy(self)
             return res
-
-# TODO: Make this work with MemPointer type because propagation gets kinda sus there
-class OwnedView(MemoryView):
-    pass
-
-class UnownedView(MemoryView):
-    pass 
 
 
 class AllocatorError(RuntimeError):
@@ -158,11 +151,11 @@ class BaseAllocator:
         ## Not thread safe!
         # _owned_pointers remains sorted so it's reasonable efficient
         # Most likely want to use a tree structure instead though, this may be too slow
-        self._owned_pointers: list[OwnedView] = []
+        self._owned_pointers: list[MemoryView] = []
         self.backend = backend
 
-    def _addptr(self, ptr: OwnedView) -> None:
-        assert isinstance(ptr, OwnedView)
+    def _addptr(self, ptr: MemoryView) -> None:
+        assert isinstance(ptr, MemoryView)
         if len(self._owned_pointers) == 0:
             self._owned_pointers = [ptr]
             return
@@ -185,8 +178,8 @@ class BaseAllocator:
                 # should not happen, but if it does we will escape quickly
                 break
 
-    def _removeptr(self, ptr: OwnedView) -> None:
-        assert isinstance(ptr.backend, OwnedView)
+    def _removeptr(self, ptr: MemoryView) -> None:
+        assert isinstance(ptr.backend, MemoryView)
         i = 0
         addr = ptr.address
         while i < len(self._owned_pointers):
@@ -200,7 +193,7 @@ class BaseAllocator:
     def alloc0(self, size: int) -> MemoryView:
         return self.backend.alloc0(size)
 
-    def free(self, ptr: OwnedView) -> None:
+    def free(self, ptr: MemoryView) -> None:
         self.backend.free(ptr)
 
 
@@ -219,7 +212,7 @@ if __name__ == "__main__":
         allocator = BaseAllocator(membackend)
 
         x = ctypes.c_uint64(0xBE1211)
-        xt = OwnedView(py_to_pointer(x), 8, membackend).into(MemInt64)
+        xt = MemoryView(py_to_pointer(x), 8, membackend).into(MemInt64)
         print(hex(xt.read()))
         xt.write(50)
         print(xt.read())

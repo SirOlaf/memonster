@@ -37,7 +37,7 @@ class MemPrimitive(MemType, Generic[T]):
 
     def read(self) -> Type[T]:
         t = type_dict[self.typename]
-        vals = t.unpack(self._memview.read_bytes(t.size, self.offset))
+        vals = t.unpack(self.read_bytes(t.size))
         if len(vals) == 1:
             return vals[0]
         else:
@@ -45,7 +45,7 @@ class MemPrimitive(MemType, Generic[T]):
 
     def write(self, data: T):
         t = type_dict[self.typename]
-        self._memview.write_bytes(t.pack(data), self.offset)
+        self.write_bytes(t.pack(data))
 
 
 class MemInt8(MemPrimitive[int]):
