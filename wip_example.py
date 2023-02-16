@@ -37,6 +37,7 @@ if __name__ == "__main__":
         print(tt.cool_cstring.read())
         print(tt.cool_int.read())
         print(tt.cool_enum.read())
+        print(tt.cool_int.cast_offset(MemEnum(0, TestEnum), 4).read())
 
         ctypes.windll.kernel32.CloseHandle(handle)
 

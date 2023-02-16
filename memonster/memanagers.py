@@ -124,7 +124,6 @@ class MemoryView:
         self.backend.write_bytes(data, self.address + offset)
 
     def into(self, memtype: Type[MMT] | MMT, offset: int = 0) -> MMT:
-        # TODO: Check if the type actually fits into the view
         if inspect.isclass(memtype):
             res = memtype(offset)
         else:

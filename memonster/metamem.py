@@ -107,6 +107,9 @@ class MemType(metaclass=MemMetaClass):
     def cast(self, memtype: Type[MT] | MT) -> MT:
         return self._memview.into(memtype, self.offset)
 
+    def cast_offset(self, memtype: Type[MT] | MT, offset) -> MT:
+        return self._memview.into(memtype, self.offset + offset)
+
     def read_bytes(self, count: int) -> bytes:
         return self._memview.read_bytes(count, self.offset)
 
