@@ -125,3 +125,15 @@ class MemCString(MemType):
         if len(data) > self.max_len:
             raise ValueError(f"Length of string {data} is above the max of {self.max_len}")
         self.write_bytes(data)
+
+class MemEnum(MemType):
+    def __init__(self, offset: int, enum_type: Type[T], enum_base_int = MemInt32) -> None:
+        super().__init__(offset)
+        self.enum_type = enum_type
+        self.enum_base_int = enum_base_int
+
+    def read(self) -> T:
+        return self.enum_type(self.cast(self.enum_base_int).read())
+
+    def write(self, data: T):
+        self.cast(self.enum_base_int).write(int(data.value))

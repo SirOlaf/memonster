@@ -127,12 +127,11 @@ class MemoryView:
         # TODO: Check if the type actually fits into the view
         if inspect.isclass(memtype):
             res = memtype(offset)
-            res._memview = copy.copy(self)
-            return res
         else:
             res = copy.copy(memtype)
-            res._memview = copy.copy(self)
-            return res
+        res._memview = copy.copy(self)
+        res.offset = offset
+        return res
 
 
 class AllocatorError(RuntimeError):

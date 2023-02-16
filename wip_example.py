@@ -3,12 +3,18 @@
 if __name__ == "__main__":
     import os
     import ctypes
-    from memonster import WindowsBackend, BaseAllocator, py_to_pointer, MemoryView, MemType, MemInt64, MemPointer, MemCString
+    from enum import Enum
+    from memonster import WindowsBackend, BaseAllocator, py_to_pointer, MemoryView, MemType, MemInt32, MemInt64, MemPointer, MemCString, MemEnum
 
     def _main():
+        class TestEnum(Enum):
+            Yes = 0
+            No = 1
+
         class TestType(MemType):
             cool_cstring = MemCString(0)
-            cool_int = MemInt64(20)
+            cool_int = MemInt32(20)
+            cool_enum = MemEnum(24, TestEnum)
 
         pid = os.getpid()
         # PROCESS_ALL_ACCESS
@@ -27,9 +33,10 @@ if __name__ == "__main__":
         tt = ttv.into(TestType)
         tt.cool_cstring.write("test")
         tt.cool_int.write(999)
+        tt.cool_enum.write(TestEnum.No)
         print(tt.cool_cstring.read())
         print(tt.cool_int.read())
-
+        print(tt.cool_enum.read())
 
         ctypes.windll.kernel32.CloseHandle(handle)
 
