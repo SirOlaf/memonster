@@ -94,7 +94,6 @@ class WindowsBackend(MemoryBackend):
             ):
             ptr = MemoryView(
                 int(lpvoid),
-                size,
                 self
             )
             return ptr
@@ -113,18 +112,15 @@ class WindowsBackend(MemoryBackend):
 
 MMT = TypeVar("MMT")
 class MemoryView:
-    __slots__ = "address", "size", "backend"
-    def __init__(self, address: int, size: int, backend: MemoryBackend) -> None:
+    __slots__ = "address", "backend"
+    def __init__(self, address: int, backend: MemoryBackend) -> None:
         self.address = address
-        self.size = size
         self.backend = backend
 
     def read_bytes(self, count: int, offset: int = 0) -> bytes:
-        assert offset + count <= self.size
         return self.backend.read_bytes(count, self.address + offset)
 
     def write_bytes(self, data: bytes, offset: int = 0) -> None:
-        assert offset + len(data) <= self.size
         self.backend.write_bytes(data, self.address + offset)
 
     def into(self, memtype: Type[MMT] | MMT, offset: int = 0) -> MMT:

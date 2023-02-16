@@ -47,6 +47,7 @@ class MemMetaClass(type):
                 for base in bases:
                     # Avoid stuff like Generics
                     if issubclass(base, MemType):
+                        # TODO: Rethink this
                         base.__init__(self, *uargs, **kwargs)
 
             # "Trivial" fields
@@ -87,10 +88,7 @@ class MemType(metaclass=MemMetaClass):
     def __init__(self, offset: int) -> None:
         self.offset = offset
 
-    # TODO: Size inference (if possible, might be quite hard with stuff like arrays)
-    @property
-    def typesize(self) -> int:
-        raise NotImplementedError()
+    # TODO: Add back a way to restrict the view size
 
     def __getattribute__(self, __name: str):
         attr = super().__getattribute__(__name)

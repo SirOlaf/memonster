@@ -89,14 +89,9 @@ class MemPointer(MemType, Generic[MT]):
         super().__init__(offset)
         self._dummy = dummy
     
-    @property
-    def typesize(self) -> int:
-        return 8
-
     def read(self) -> MT:
         res = copy.copy(self._dummy)
         res._memview = copy.copy(self._memview)
-        res._memview.size = res.typesize
         # TODO: Generic pointer primitive so it works on multiple process bit-types
         res._memview.address = self.cast(MemUInt64).read()
         return res
@@ -106,3 +101,27 @@ class MemPointer(MemType, Generic[MT]):
         res = addr.read()
         addr.write(ptr._memview.address)
         return res
+
+# TODO: Should this imply utf-8 or should it be set by user? Not sure yet
+class MemCString(MemType):
+    def __init__(self, offset: int, max_len: int = 20, silent_fail: bool = False) -> None:
+        super().__init__(offset)
+        self.max_len = max_len
+        self.silent_fail = silent_fail
+
+    def read(self) -> str:
+        data = self.read_bytes(self.max_len)
+        null = data.find(b"\x00")
+        if null == 0:
+            return ""
+        elif null == -1:
+            if self.silent_fail:
+                return ""
+            raise ValueError("CString without Null terminator (try increasing max_len)")
+        return data[:null].decode("utf-8")
+
+    def write(self, data: str):
+        data = data.encode("utf-8") + b"\x00"
+        if len(data) > self.max_len:
+            raise ValueError(f"Length of string {data} is above the max of {self.max_len}")
+        self.write_bytes(data)
