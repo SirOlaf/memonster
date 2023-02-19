@@ -4,7 +4,7 @@ if __name__ == "__main__":
     import os
     import ctypes
     from enum import Enum
-    from memonster import WindowsBackend, BaseAllocator, py_to_pointer, MemoryView, MemType, MemInt32, MemInt64, MemPointer, MemCString, MemEnum
+    from memonster import WindowsBackend, BaseAllocator, py_to_pointer, MemoryView, MemType, MemInt32, MemInt64, MemPointer, MemCString, MemEnum, LazyType
 
     def _main():
         class TestEnum(Enum):
@@ -12,6 +12,10 @@ if __name__ == "__main__":
             No = 1
 
         class TestType(MemType):
+            def __init__(self, offset: int):
+                super().__init__(offset)
+                self.me = MemPointer(28, LazyType(TestType)(0))
+
             cool_cstring = MemCString(0)
             cool_int = MemInt32(20)
             cool_enum = MemEnum(24, TestEnum)
@@ -29,7 +33,7 @@ if __name__ == "__main__":
         xt.write(50)
         print(xt.read())
 
-        ttv = allocator.alloc0(24)
+        ttv = allocator.alloc0(36)
         tt = ttv.into(TestType)
         tt.cool_cstring.write("test")
         tt.cool_int.write(999)

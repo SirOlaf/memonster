@@ -77,11 +77,13 @@ class WindowsBackend(MemoryBackend):
 
     def read_bytes(self, count: int, address: int) -> bytes:
         buff = ctypes.create_string_buffer(count)
-        _ReadProcessMemory(self._handle, address, buff, count, ctypes.c_size_t(0))
+        if 0 ==_ReadProcessMemory(self._handle, address, buff, count, ctypes.c_size_t(0)):
+            raise AllocatorError(f"Failed to read bytes from address {address}")
         return buff.raw
 
     def write_bytes(self, data: bytes, address: int) -> None:
-        _WriteProcessMemory(self._handle, address, data, len(data), ctypes.c_size_t(0))
+        if 0 == _WriteProcessMemory(self._handle, address, data, len(data), ctypes.c_size_t(0)):
+            raise AllocatorError(f"Failed to write bytes to address {address}")
 
     def alloc(self, size: int) -> "MemoryView":
         # could use large pages for big allocs
@@ -123,12 +125,13 @@ class MemoryView:
     def write_bytes(self, data: bytes, offset: int = 0) -> None:
         self.backend.write_bytes(data, self.address + offset)
 
-    def into(self, memtype: Type[MMT] | MMT, offset: int = 0) -> MMT:
+    # Why the hell is X | Y evaluated backwards in my extension
+    def into(self, memtype: MMT | Type[MMT], offset: int = 0) -> MMT:
         if inspect.isclass(memtype):
             res = memtype(offset)
         else:
             res = copy.copy(memtype)
-        res._memview = copy.copy(self)
+        res._memview = self
         res.offset = offset
         return res
 

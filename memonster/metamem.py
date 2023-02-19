@@ -1,6 +1,6 @@
 import copy
 
-from typing import Type, TypeVar
+from typing import Type, TypeVar, Generic
 
 
 class MemMetaClass(type):
@@ -16,31 +16,6 @@ class MemMetaClass(type):
         #print("UNTRANSFORMED")
         #print(attrs)
 
-        # Need to resolve these lazily in frame of __init__
-        str_annots = {}
-        if annots := attrs.pop("__annotations__", None):
-            temp.pop("__annotations__")
-            for annot, typehint in annots.items():
-                if isinstance(typehint, str):
-                    if annot in temp:
-                        str_annots[annot] = typehint
-                    else:
-                        temp[annot] = None
-
-                    continue
-                
-                if annot not in temp:
-                    temp[annot] = None
-                elif annot in temp and isinstance(temp[annot], tuple):
-                    args = temp[annot]
-                    if len(args) > 1:
-                        temp[annot] = typehint(*args[0], **args[1])
-                    else:
-                        if isinstance(args[0], dict):
-                            temp[annot] = typehint(**args[0])
-                        else:
-                            temp[annot] = typehint(*args[0])
-
         orig_init = attrs.pop("__init__", None)
         def new_init(self, *uargs, **kwargs):
             if orig_init == None and len(bases) > 0:
@@ -55,21 +30,6 @@ class MemMetaClass(type):
                 # TODO: Copy might not be good enough. May need to inspect ast to transform this accurately
                 type(self).__setattr__(self, key, copy.copy(val))
 
-            # lazy resolution for str type hints; makes forward declarations kinda work
-            for name, strannot in str_annots.items():
-                args = temp[name]
-                typecls = eval(strannot)
-                if len(args) > 1:
-                    val = typecls(*temp[0], **temp[1])
-                elif len(args) == 1:
-                    if isinstance(args[0], dict):
-                        val = typecls(**args[0])
-                    else:
-                        val = typecls(*args[0])
-                else:
-                    val = typecls()
-                type(self).__setattr__(self, name, val)
-
             if orig_init != None:
                 orig_init(self, *uargs, **kwargs)
         attrs["__init__"] = new_init
@@ -80,8 +40,20 @@ class MemMetaClass(type):
         #print(f"Fully transformed: {attrs}\n")
         return super().__new__(cls, clsname, bases, attrs)
 
-MT = TypeVar("MT")
 T = TypeVar("T")
+# Used to let MemType resolve types lazily for stuff like recursive types
+class LazyType(Generic[T]):
+    def __init__(self, ttype: Type[T]) -> None:
+        self.ttype = ttype
+        self.args = None
+        self.kwds = None
+
+    def __call__(self, *args, **kwds) -> T:
+        self.args = args
+        self.kwds = kwds
+        return self
+
+MT = TypeVar("MT", bound="MemType")
 class MemType(metaclass=MemMetaClass):
     _memview = None
 
@@ -95,8 +67,14 @@ class MemType(metaclass=MemMetaClass):
         if isinstance(attr, MemType):
             attr._memview = self._memview
             return attr
+        elif isinstance(attr, LazyType):
+            inner = attr(*attr.args, **attr.kwds)
+            # It is resolved from here on, so replace the one we store
+            super().__setattr__(__name, inner)
+            return self.__getattribute__(__name)
         else:
             return attr
+    # TODO: Is a corresponding __setattr__ needed?
 
     def read(self) -> T:
         raise NotImplementedError()
