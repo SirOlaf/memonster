@@ -35,7 +35,7 @@ class MemPrimitive(MemType, Generic[T]):
     typename: str = None
     generic_type = None
 
-    def read(self) -> Type[T]:
+    def read(self) -> T:
         t = type_dict[self.typename]
         vals = t.unpack(self.read_bytes(t.size))
         if len(vals) == 1:
@@ -46,6 +46,9 @@ class MemPrimitive(MemType, Generic[T]):
     def write(self, data: T):
         t = type_dict[self.typename]
         self.write_bytes(t.pack(data))
+
+    def size(self) -> int:
+        return type_dict[self.typename].size
 
 
 class MemInt8(MemPrimitive[int]):
@@ -88,7 +91,10 @@ class MemPointer(MemType, Generic[MT]):
     def __init__(self, offset: int, dummy: MT) -> None:
         super().__init__(offset)
         self._dummy = dummy
-    
+
+    def size(self):
+        return 8
+
     def read(self) -> MT:
         res = copy.copy(self._dummy)
         res._memview = copy.copy(self._memview)
@@ -126,7 +132,7 @@ class MemCString(MemType):
             raise ValueError(f"Length of string {data} is above the max of {self.max_len}")
         self.write_bytes(data)
 
-class MemEnum(MemType):
+class MemEnum(MemType, Generic[T]):
     def __init__(self, offset: int, enum_type: Type[T], enum_base_int = MemInt32) -> None:
         super().__init__(offset)
         self.enum_type = enum_type

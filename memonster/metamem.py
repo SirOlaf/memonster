@@ -3,6 +3,10 @@ import copy
 from typing import Type, TypeVar, Generic
 
 
+# TODO: Size inference. Has to happen dynamically every time to account for __init__ methods
+# Should also be possible to override easily
+
+
 class MemMetaClass(type):
     def __new__(cls, clsname, bases, attrs):
         temp = dict(attrs)
@@ -60,6 +64,9 @@ class MemType(metaclass=MemMetaClass):
     def __init__(self, offset: int) -> None:
         self.offset = offset
 
+    def size(self) -> int:
+        raise NotImplementedError()
+
     # TODO: Add back a way to restrict the view size
 
     def __getattribute__(self, __name: str):
@@ -85,7 +92,7 @@ class MemType(metaclass=MemMetaClass):
     def cast(self, memtype: Type[MT] | MT) -> MT:
         return self._memview.into(memtype, self.offset)
 
-    def cast_offset(self, memtype: Type[MT] | MT, offset) -> MT:
+    def cast_offset(self, offset: int, memtype: Type[MT] | MT) -> MT:
         return self._memview.into(memtype, self.offset + offset)
 
     def read_bytes(self, count: int) -> bytes:
