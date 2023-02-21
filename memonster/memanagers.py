@@ -103,7 +103,7 @@ class WindowsBackend(MemoryBackend):
             raise AllocatorError("VirtualAllocEx failed")
 
     def free(self, ptr: "MemoryView"):
-        assert isinstance(ptr.backend, MemoryView)
+        assert isinstance(ptr._backend, MemoryView)
         _VirtualFreeEx(
             self.handle,
             ptr.address,
@@ -114,16 +114,19 @@ class WindowsBackend(MemoryBackend):
 
 MMT = TypeVar("MMT")
 class MemoryView:
-    __slots__ = "address", "backend"
     def __init__(self, address: int, backend: MemoryBackend) -> None:
-        self.address = address
-        self.backend = backend
+        self._address = address
+        self._backend = backend
+
+    @property
+    def address(self) -> int:
+        return self._address
 
     def read_bytes(self, count: int, offset: int = 0) -> bytes:
-        return self.backend.read_bytes(count, self.address + offset)
+        return self._backend.read_bytes(count, self.address + offset)
 
     def write_bytes(self, data: bytes, offset: int = 0) -> None:
-        self.backend.write_bytes(data, self.address + offset)
+        self._backend.write_bytes(data, self.address + offset)
 
     # Why the hell is X | Y evaluated backwards in my extension
     def into(self, memtype: MMT | Type[MMT], offset: int = 0) -> MMT:
@@ -135,7 +138,6 @@ class MemoryView:
         res.offset = offset
         return res
 
-
 class AllocatorError(RuntimeError):
     pass
 
@@ -144,47 +146,133 @@ class BaseAllocator:
         ## Not thread safe!
         # _owned_pointers remains sorted so it's reasonable efficient
         # Most likely want to use a tree structure instead though, this may be too slow
-        self._owned_pointers: list[MemoryView] = []
-        self.backend = backend
+        # (view, size)
+        self._owned_pointers: list[tuple[MemoryView, int]] = []
+        self._backend = backend
 
-    def _addptr(self, ptr: MemoryView) -> None:
+    def _addptr(self, ptr: MemoryView, size: int) -> None:
         assert isinstance(ptr, MemoryView)
         if len(self._owned_pointers) == 0:
-            self._owned_pointers = [ptr]
+            self._owned_pointers = [(ptr, size)]
             return
         i = 0
         addr = ptr.address
         while i < len(self._owned_pointers):
             cur = self._owned_pointers[i]
-            if addr < cur.address:
+            if addr < cur[0].address:
                 # insert here
-                self._owned_pointers.insert(i, ptr)
+                self._owned_pointers.insert(i, (ptr, size))
                 break
-            elif addr > cur.address:
+            elif addr > cur[0].address:
                 if i + 1 >= len(self._owned_pointers):
                     # insert at end
-                    self._owned_pointers.append(ptr)
+                    self._owned_pointers.append((ptr, size))
                     break
                 # continue on
                 i += 1
             else:
                 # should not happen, but if it does we will escape quickly
-                break
+                raise AllocatorError("Could not store a pointer in _owned_pointers")
 
     def _removeptr(self, ptr: MemoryView) -> None:
-        assert isinstance(ptr.backend, MemoryView)
+        assert isinstance(ptr._backend, MemoryView)
         i = 0
         addr = ptr.address
         while i < len(self._owned_pointers):
-            if addr == self._owned_pointers[i].address:
+            if addr == self._owned_pointers[i][0].address:
                 self._owned_pointers.pop(i)
                 break
 
     def alloc(self, size: int) -> MemoryView:
-        return self.backend.alloc(size)
+        res = self._backend.alloc(size)
+        self._addptr(res, size)
+        return res
 
     def alloc0(self, size: int) -> MemoryView:
-        return self.backend.alloc0(size)
+        return self._backend.alloc0(size)
 
     def free(self, ptr: MemoryView) -> None:
-        self.backend.free(ptr)
+        self._removeptr(ptr)
+        self._backend.free(ptr)
+
+# TODO: Maybe add support for multiple caves
+class CaveAllocator(BaseAllocator):
+    def __init__(self, backend: MemoryBackend, start_addr: int, size: int) -> None:
+        ## Not thread safe and can fragment badly
+        super().__init__(backend)
+        self._start_addr = start_addr
+        self._size = size
+
+    @property
+    def _end_addr(self):
+        return self._start_addr + self._size
+
+    def _find_space(self, size: int):
+        # Returns the smallest region that can fit size bytes to reduce fragmentation somewhat
+
+        assert size <= self._size
+        # Don't need any extra checks in this case
+        if len(self._owned_pointers) == 0:
+            return self._start_addr
+        # Simple case, write by hand
+        elif len(self._owned_pointers) == 1:
+            # [start]++++++[ptr0]----[end]
+            region_a = self._owned_pointers[0][0].address - self._start_addr
+            b_start = self._owned_pointers[0][0].address + self._owned_pointers[0][1]
+            # [start]------[ptr0]++++[end]
+            region_b = self._end_addr - (b_start)
+
+            # Otherwise no space
+            if region_a >= size or region_b >= size:
+                if region_a >= size and region_b < size:
+                    return self._start_addr                
+                elif region_b >= size and region_a < size:
+                    return b_start
+
+                # both are big enough, use smaller one
+                # a is smaller
+                elif region_a < region_b:
+                    return self._start_addr 
+                # b must be smaller and still big enough
+                else:
+                    return b_start
+        # Need to scan all pointers and find smallest gap
+        else:
+            smallest = self._size + 1
+            smallest_addr = -1
+
+            # first and last are special, do those by hand
+            a = self._owned_pointers[0]
+            b = self._owned_pointers[-1]
+            s = a[0].address - self._start_addr
+            if s >= size and s < smallest:
+                smallest = s
+                smallest_addr = self._start_addr
+            s = self._end_addr - (b[0].address + b[1])
+            if s >= size and s < smallest:
+                smallest = s
+                smallest_addr = b[0].address + b[1]
+
+            # all the other pointers
+            # leave space for last because we wanna have i and i+1
+            for i in range(len(self._owned_pointers) - 1):
+                a = self._owned_pointers[i]
+                b = self._owned_pointers[i+1]
+                s = b[0].address - (a[0].address + a[1])
+                if s >= size and s < smallest:
+                    smallest = s
+                    smallest_addr = a[0].address + a[1]
+
+            # We didn't find a gap otherwise so fall through
+            if smallest <= self._size:
+                return smallest_addr
+        raise AllocatorError(f"Cave does not have a region big enough for {size} bytes")
+
+    def alloc(self, size: int) -> MemoryView:
+        addr = self._find_space(size)
+        self._addptr(addr, size)
+        return MemoryView(addr, self._backend)
+
+    def free(self, ptr: MemoryView) -> None:
+        self._removeptr(ptr)
+
